@@ -35,10 +35,62 @@ Gợi ý
 - `iou_xywh` có sẵn. Dòng nhãn hỏng không được làm script chết (dùng `ds.valid_boxes` và `parse_yolo_line` trong try).
 - Kết quả phụ thuộc mạnh vào ngưỡng: calibrate chúng ở Bước 3 thay vì đoán.
 """
-from ..common import WARN, Issue, iou_xywh, parse_yolo_line  # noqa: F401
-from ..model_cache import get_preds  # noqa: F401
+from ..common import WARN, Issue, iou_xywh, parse_yolo_line
+from ..model_cache import get_preds
 
 
 def run(ds, cfg, preds=None):
-    # TODO
-    raise NotImplementedError("check second_opinion chưa làm")
+    rules = cfg["second_opinion"]
+    if preds is None:
+        preds = get_preds(ds, cfg, "checker")
+    issues = []
+    for path in ds.image_files():
+        stem = path.stem
+        if stem not in preds:
+            continue
+        lines = ds.read_label_lines(stem)
+        size = ds.image_size(stem)
+        if lines is None or size is None:
+            continue
+
+        labels = []
+        for line, text in lines:
+            try:
+                cls, *box = parse_yolo_line(text)
+            except (ValueError, OverflowError):
+                continue
+            if 0 <= cls < len(ds.classes) and box[2] > 0 and box[3] > 0:
+                labels.append((line, cls, box))
+
+        area = size[0] * size[1]
+        for cls, confidence, *box in preds[stem]:
+            if confidence < rules["conf"] or box[2] * box[3] * area < rules["min_area_px"]:
+                continue
+            candidates = [(label_cls, iou_xywh(box, label_box)) for _, label_cls, label_box in labels]
+            candidates = [(other, iou) for other, iou in candidates if iou >= rules["iou_missing"]]
+            same_class = [iou for other, iou in candidates if other == cls]
+            extra = {"conf": confidence}
+            if not candidates:
+                code, message = "POSSIBLE_MISSING", f"Nghi thiếu box lớp {ds.classes[cls]}"
+            elif same_class:
+                extra["iou"] = max(same_class)
+                if extra["iou"] >= rules["iou_loose"]:
+                    continue
+                code, message = "POSSIBLE_LOOSE_BOX", "Box cùng lớp có IoU thấp"
+            else:
+                other, best_iou = max(candidates, key=lambda candidate: candidate[1])
+                if best_iou < rules["iou_match"]:
+                    continue
+                extra["iou"] = best_iou
+                code = "POSSIBLE_WRONG_CLASS"
+                message = f"Model thấy {ds.classes[cls]}, nhãn ghi {ds.classes[other]}"
+            issues.append(Issue("second_opinion", WARN, code, stem, message, extra=extra))
+
+        fp_boxes = [pred[2:] for pred in preds[stem] if pred[1] >= rules["fp_conf"]]
+        for line, _, box in labels:
+            best_iou = max((iou_xywh(box, pred) for pred in fp_boxes), default=0.0)
+            if best_iou < rules["iou_missing"]:
+                issues.append(Issue("second_opinion", WARN, "POSSIBLE_FALSE_POS", stem,
+                                    "Box nhãn không khớp dự đoán nào", line, {"iou": best_iou}))
+
+    return issues
