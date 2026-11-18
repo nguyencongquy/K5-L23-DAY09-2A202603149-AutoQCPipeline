@@ -37,14 +37,26 @@ Chạy `python -m pipeline.run --budget 0 --work work/run_nb --reports work/rep_
 
 ## 5. Train raw vs clean
 
-Chưa chạy. Bản xuất đã sẵn sàng để chạy trên Kaggle với YOLO26n, 20 epoch, seed 0 và 1 cho mỗi biến thể. Hai biến thể dùng cùng val và test. Kết luận hiệu quả sẽ được cập nhật từ JSON do script train sinh.
+Bốn lượt chạy trên Kaggle Tesla T4 dùng cùng YOLO26n, 20 epoch, ảnh 640 px, batch 16 và seed 0, 1. Mỗi lượt chọn checkpoint bằng 40 ảnh val và đo lần cuối trên cùng 100 ảnh test. Ultralytics đọc 224 ảnh đầu vào của `raw` rồi loại 11 ảnh hoặc nhãn lỗi, nên số ảnh thực sự dùng là 213. Với `clean`, cả 205 ảnh đầu vào được dùng.
+
+| Biến thể | mAP50 | mAP50–95 | Precision | Recall |
+|---|---:|---:|---:|---:|
+| `raw` | 0,726 ± 0,000 | 0,512 ± 0,004 | 0,764 ± 0,061 | 0,649 ± 0,028 |
+| `clean` | 0,700 ± 0,030 | 0,486 ± 0,013 | 0,715 ± 0,073 | 0,615 ± 0,017 |
+
+Các giá trị là trung bình ± độ lệch chuẩn mẫu giữa hai seed. Chênh lệch mAP50 `clean − raw` trung bình là **−0,0254**. Chênh lệch theo seed là −0,0468 và −0,0040, còn độ lệch chuẩn của `clean` là 0,0305. Kết quả quan sát được nghiêng về `raw`, nhưng với hai seed và mức dao động này, chưa đủ bằng chứng để kết luận QC làm giảm hiệu năng ổn định. [Bảng và kết quả từng lượt](results/).
+
+Hai giả thuyết cần kiểm thêm:
+
+- Intake phát hiện bốn ảnh `raw` trùng hoặc gần trùng ảnh test. Rò rỉ có thể làm điểm `raw` cao hơn. Có thể đánh giá lại các checkpoint đã khóa trên cùng 96 ảnh test còn lại để đo độ nhạy với bốn ca này.
+- AP50 của lớp `truck` giảm từ trung bình 0,648 xuống 0,559. Thay đổi số mẫu hoặc chất lượng box lớp này có thể góp phần làm điểm giảm. Cần đối chiếu số ảnh và box `truck` thực sự vào train, rà cảnh báo còn lại và chạy thêm seed trên một tập test độc lập.
 
 ## 6. Quyết định và ghi chú triển khai
 
 Giữ **Hold**. Với 205 ảnh và 0 lỗi bắt buộc, Release cần tối đa 20 ảnh chưa duyệt còn cảnh báo. Cần xử lý ít nhất 18 trong 38 ảnh đang bị cờ và chạy lại QC. Ưu tiên ca thiếu box và sai lớp, sau đó kiểm các ca box lỏng.
 
 - Prompt chính yêu cầu đọc dòng YOLO và cấu hình, trả `Issue` đúng mã và số dòng, chỉ ghi bản làm việc và log trước/sau.
-- Kiểm bằng 79 unit test, lỗi chèn trên 39 ảnh calib, phép thử gate ngân sách 0 và chạy lặp trên lô raw.
+- Kiểm bằng 79 test gốc và hai test bổ sung, lỗi chèn trên 39 ảnh calib, phép thử gate ngân sách 0 và chạy lặp trên lô raw.
 - Bản nháp autofix tạo box trùng sau khi cắt biên trong ca thử bổ sung. Bản sửa so IoU của box vừa cắt với các box cùng lớp và ghi một lần xóa cho dòng trùng.
 
 **Kiểm bổ sung.** Chạy `python -m pipeline.checks.box_aspect work/run/ds --max-ratio 6 --out submission/evidence/box_aspect.csv` sau `make run`. Check dùng tỉ lệ cạnh dài/cạnh ngắn theo pixel, có hai test riêng và gắn cờ 3 box trên 205 ảnh ở ngưỡng 6. Tỉ lệ lớn có thể là vật bị che hoặc bị cắt ở mép ảnh. Check chỉ dùng để chọn ca xem lại, ngoài cổng QC chính thức.
