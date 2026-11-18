@@ -27,13 +27,100 @@ Bẫy cần nghĩ tới (có test cho từng cái)
 
 Gợi ý: `yaml.safe_load / safe_dump`.
 """
-from collections import defaultdict  # noqa: F401
+from collections import defaultdict
 
-import yaml  # noqa: F401
+import yaml
 
-from ..common import ERROR, parse_yolo_line  # noqa: F401
+from ..common import ERROR, iou_xywh, parse_yolo_line
+
+
+DROP_CODES = {"BAD_FORMAT", "BAD_CLASS_ID", "BOX_ZERO", "DUP_BOX"}
+REMOVE_CODES = {"LEAK_TEST", "CORRUPT_IMAGE", "BAD_SIZE"}
+
+
+def clipped_line(text):
+    cls, cx, cy, width, height = parse_yolo_line(text)
+    left, right = max(0.0, cx - width / 2), min(1.0, cx + width / 2)
+    top, bottom = max(0.0, cy - height / 2), min(1.0, cy + height / 2)
+    if right <= left or bottom <= top:
+        return None
+    x, y = (left + right) / 2, (top + bottom) / 2
+    return f"{cls} {x:.16g} {y:.16g} {right - left:.16g} {bottom - top:.16g}"
+
+
+def duplicate_after_clipping(text, changed, kept, threshold):
+    try:
+        cls, *box = parse_yolo_line(text)
+    except (ValueError, OverflowError):
+        return False
+    if box[2] <= 0 or box[3] <= 0:
+        return False
+    if any((changed or was_clipped) and iou_xywh(box, prior) > threshold
+           for prior, was_clipped in kept[cls]):
+        return True
+    kept[cls].append((box, changed))
+    return False
 
 
 def fix(ds, issues, cfg):
-    # TODO
-    raise NotImplementedError("autofix chưa làm")
+    by_image = defaultdict(list)
+    for issue in issues:
+        if issue.severity == ERROR:
+            by_image[issue.image].append(issue)
+
+    fixes = []
+
+    def record(image, action, before, after, line=None):
+        fixes.append(dict(image=image, line=line, action=action, before=before, after=after))
+
+    for image, errors in sorted(by_image.items()):
+        codes = {issue.code for issue in errors}
+        if "BAD_CLASS_NAME" in codes:
+            before = ds.yaml_path.read_text(encoding="utf-8") if ds.yaml_path.exists() else ""
+            content = yaml.safe_load(before) or {}
+            if content.get("names") != cfg["classes"]:
+                content["names"] = list(cfg["classes"])
+                after = yaml.safe_dump(content, allow_unicode=True, sort_keys=False)
+                ds.yaml_path.write_text(after, encoding="utf-8")
+                record(image, "rename_classes", before, after)
+
+        if codes & REMOVE_CODES or any(code.startswith("DUP_IMAGE_") for code in codes):
+            path = ds.image_path(image)
+            if path:
+                path.unlink()
+                ds.label_path(image).unlink(missing_ok=True)
+                record(image, "remove_image", path.name, "")
+            continue
+
+        label = ds.label_path(image)
+        if not label.exists():
+            if "MISSING_LABEL_FILE" in codes:
+                record(image, "needs_label", "(không có file)", "chuyển người gán")
+            continue
+
+        dropped = {issue.line for issue in errors if issue.code in DROP_CODES}
+        clipped = {issue.line for issue in errors if issue.code == "BOX_OUT_OF_IMAGE"}
+        if not (dropped or clipped):
+            continue
+
+        updated = []
+        kept = defaultdict(list)
+        original = label.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line, before in enumerate(original, 1):
+            if line in dropped:
+                record(image, "drop_line", before, "", line)
+                continue
+            after = clipped_line(before) if line in clipped else before
+            if after is None or (clipped and duplicate_after_clipping(
+                after, after != before, kept, cfg["label_format"]["dup_box_iou"]
+            )):
+                record(image, "drop_line", before, "", line)
+                continue
+            if after != before:
+                record(image, "clip_box", before, after, line)
+            updated.append(after)
+
+        if updated != original:
+            label.write_text("".join(f"{text}\n" for text in updated), encoding="utf-8")
+
+    return fixes
