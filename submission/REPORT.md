@@ -1,36 +1,48 @@
-# Báo cáo Day 09 — <Họ và tên>, <MSHV>
-
-> Xoá mọi `TODO(học viên)` và dòng gợi ý. Mỗi ý trả lời bằng **số lấy từ `submission/reports/`**, kèm mẫu số. Cả báo cáo ~1–2 trang.
+# Báo cáo Day 09 — Nguyễn Công Quý, 2A202603149
 
 ## 1. Kết luận trước
-TODO(học viên): pipeline kết luận **Release / Hold / Rework**? Bao nhiêu ảnh vào, bao nhiêu ảnh ra dataset? Lý do chính (1–3 câu).
+
+**Hold.** Pipeline nhận 205/224 ảnh sau khi loại 19 ảnh ở bước intake và xuất bản nháp gồm 205 ảnh với 753 box. Sau 80 lượt duyệt mô phỏng, còn 0 lỗi bắt buộc và 38/205 ảnh chưa duyệt còn cảnh báo (18,54%), vượt ngưỡng 10%. Bản xuất được dùng cho thí nghiệm raw/clean.
 
 ## 2. Lỗi và phân việc
-Lấy từ `02_error_list_v1` (gom theo mã lỗi). Cột "ai sửa": **máy** (autofix) hay **người** (hàng đợi); chỉ ghi những mã có mặt trong lô của bạn.
 
-| Mã lỗi | Số ảnh/dòng | Ai sửa (máy/người) | Vì sao |
-|---|---:|---|---|
-| TODO(học viên) | | | |
+Các số lấy từ [danh sách v1](reports/02_error_list_v1.csv). Intake có 19 lượt báo trên 224 ảnh. QC vòng đầu có 185 lượt báo trên 205 ảnh được nhận. Một ảnh có thể có nhiều dòng lỗi hoặc cảnh báo.
 
-TODO(học viên): vì sao `05_review_queue.csv` xếp ảnh đầu hàng như vậy? Với ngân sách 80 ảnh, người xem được bao nhiêu lỗi ngữ nghĩa?
+| Mã lỗi và số lượt | Ai xử lý | Cách xử lý |
+|---|---|---|
+| `DUP_IMAGE_EXACT` 8, `DUP_IMAGE_NEAR` 2, `LEAK_TEST` 4 | Máy | Loại ảnh trùng hoặc trùng kho val/test |
+| `BAD_SIZE` 3, `CORRUPT_IMAGE` 2 | Máy | Loại ảnh quá nhỏ hoặc không giải mã được |
+| `DUP_BOX` 7, `BAD_CLASS_ID` 6, `BOX_ZERO` 4, `BAD_FORMAT` 3 | Máy | Xóa dòng lỗi, giữ số dòng gốc trong log |
+| `BOX_OUT_OF_IMAGE` 8, `BAD_CLASS_NAME` 2 | Máy | Cắt box theo mép ảnh, chuẩn hóa tên lớp trong YAML |
+| `MISSING_LABEL_FILE` 6, `EMPTY_LABEL` 12 | Người | Gán ảnh còn thiếu và kiểm ảnh có file rỗng |
+| `POSSIBLE_MISSING` 53, `POSSIBLE_LOOSE_BOX` 28, `POSSIBLE_FALSE_POS` 25, `POSSIBLE_WRONG_CLASS` 18 | Người | Đối chiếu từng cảnh báo YOLO với vật trong ảnh |
+| `BOX_TINY` 6, `BOX_HUGE` 3, `CLASS_RARE` 4 | Người | Kiểm kích thước box và độ phủ từng lớp |
 
-## 3. Calibration (2 ngưỡng)
-| Tham số | Khởi đầu | Đã chọn | Precision / Recall (trước → sau) | Lý do (đánh đổi) |
-|---|---|---|---|---|
-| `duplicates.phash_dist` | 2 | TODO(học viên) | | |
-| `second_opinion.conf` | 0.25 | TODO(học viên) | | |
+Sau autofix, hàng đợi có 125 ảnh. `img_0020` đứng đầu (11,524 điểm) vì có dòng vừa bị xóa, nghi thiếu box và nghi sai lớp. Mô phỏng duyệt 80/125 ảnh. Các ảnh được chọn chứa 94/123 cảnh báo ngữ nghĩa ở v2, gồm 51 thiếu, 18 sai lớp, 13 thừa và 12 lỏng. Đây là số cảnh báo được đưa vào lượt duyệt, chưa phải số lỗi ngữ nghĩa xác nhận. Cả sáu file nhãn thiếu được bổ sung trong lượt mô phỏng.
 
-TODO(học viên): **một chỗ calibration có thể đánh lừa bạn**, kèm bằng chứng từ dữ liệu của bạn (vd. mở xem vài cặp ảnh bị cho là trùng; số ảnh bị loại ở bước 1 có hợp lý không?).
+## 3. Calibration
 
-## 4. Cửa chặn và điều pipeline KHÔNG bắt được
-TODO(học viên): (a) chứng minh gate chặn đúng: chạy `python -m pipeline.run --budget 0 --reports work/rep_nb --export-dir work/exp_nb` (không có người duyệt nên ảnh thiếu file nhãn còn nguyên), chỉ ra kết luận **Rework**, mã thoát 20 và việc **không xuất** dataset. (Đừng sửa tay `work/run/ds`: pipeline dựng lại thư mục này từ raw mỗi lần chạy.) (b) ≥ 2 điểm mù có bằng chứng (box lỏng nhẹ, nhầm lớp mà model lớn cũng nhầm, ảnh trùng biến đổi mạnh…).
+| Ngưỡng | Trước → sau | Precision / recall trên 39 ảnh calib | Lý do |
+|---|---|---|---|
+| `duplicates.phash_dist` | 2 → 4 | Gần trùng 1,00/0,50 → 1,00/0,67 | Bắt 4/6 thay vì 3/6, không thêm FP. Chọn mốc nhỏ nhất đạt 4/6 vì ảnh bị loại tự động. |
+| `second_opinion.conf` | 0,25 → 0,60 | Thiếu 0,50/1,00 → 0,57/1,00, sai lớp 0,56/0,83 → 0,62/0,83, box lỏng 0,29/0,40 → 0,20/0,20 | Giữ 8/8 ca thiếu và 5/6 ca sai lớp, giảm FP của hai nhóm. Chấp nhận mất một ca box lỏng trên calib. |
 
-## 5. Train: raw vs clean (tùy chọn, chấm riêng)
-Chưa train: ghi "chưa chạy" và lý do, rồi bỏ qua phần còn lại của mục này. Nếu đã train: dán bảng từ `submission/results/comparison.md` (model, epoch, seed, số ảnh train mỗi biến thể).
+Hai cặp raw `0042–0076` và `0037–0143` có pHash cách 0 dù kích thước khác. Đối chiếu ảnh thu về 128×128 cho sai khác RGB trung bình 1,32 và 1,81/255. Các ca gần trùng này dễ hơn hai ca còn lọt trên calib. Vì thế precision 1,00 trên calib chỉ phản ánh mẫu nhỏ đã thử, đặc biệt khi tăng ngưỡng để bắt thêm ảnh biến đổi mạnh.
 
-TODO(học viên): chênh mAP50 (clean − raw) so với **độ lệch chuẩn giữa các seed**; kết luận **trung thực** (nằm trong nhiễu thì nói là chưa kết luận được); ≥ 2 giả thuyết giải thích (ảnh trùng/rò rỉ test trong `raw`, nhãn máy còn lại trong `clean`, test chỉ 100 ảnh…) và cách kiểm.
+## 4. Cửa chặn và điểm mù
 
-## 6. Quyết định và ghi chú AI
-TODO(học viên): (a) quyết định cuối; nếu Hold/Rework cần làm gì để thành Release? (b) Dùng AI viết code? Ghi 3 dòng: prompt chính, cách bạn kiểm code AI, 1 lần AI sai. Không dùng: ghi "không dùng".
+Chạy `python -m pipeline.run --budget 0 --work work/run_nb --reports work/rep_nb --export-dir work/exp_nb`. Còn sáu lỗi thiếu file nhãn, trả **Rework**, mã **20**, không sinh manifest. Hai lần chạy với ngân sách chuẩn cho cùng quyết định, số liệu và nội dung export.
 
-*(Thưởng +2, tùy chọn)* CVAT: lọc `width < 20`, ảnh/số box khớp, đối chiếu `BOX_TINY` (xem docs/CVAT_FILTER.md), 1 câu về `can_review`.
+Đối chiếu tọa độ raw xác nhận box trùng ở `img_0001` dòng 3 và `img_0006` dòng 2, cùng box tràn biên 2,30% ở `img_0030` dòng 9. Hai điểm mù có số đo từ calib: pHash bỏ sót **2/6** ảnh gần trùng ở ngưỡng 4, và checker bỏ sót **4/5** ca box lỏng ở confidence 0,60. Dùng đối chiếu trực quan cho ảnh biến đổi mạnh hoặc box còn hợp lệ về cú pháp.
+
+## 5. Train raw vs clean
+
+Chưa chạy. Bản xuất đã sẵn sàng để chạy trên Kaggle với YOLO26n, 20 epoch, seed 0 và 1 cho mỗi biến thể. Hai biến thể dùng cùng val và test. Kết luận hiệu quả sẽ được cập nhật từ JSON do script train sinh.
+
+## 6. Quyết định và ghi chú triển khai
+
+Giữ **Hold**. Với 205 ảnh và 0 lỗi bắt buộc, Release cần tối đa 20 ảnh chưa duyệt còn cảnh báo. Cần xử lý ít nhất 18 trong 38 ảnh đang bị cờ và chạy lại QC. Ưu tiên ca thiếu box và sai lớp, sau đó kiểm các ca box lỏng.
+
+- Prompt chính yêu cầu đọc dòng YOLO và cấu hình, trả `Issue` đúng mã và số dòng, chỉ ghi bản làm việc và log trước/sau.
+- Kiểm bằng 79 unit test, lỗi chèn trên 39 ảnh calib, phép thử gate ngân sách 0 và chạy lặp trên lô raw.
+- Bản nháp autofix tạo box trùng sau khi cắt biên trong ca thử bổ sung. Bản sửa so IoU của box vừa cắt với các box cùng lớp và ghi một lần xóa cho dòng trùng.
