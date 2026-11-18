@@ -46,3 +46,7 @@ Giữ **Hold**. Với 205 ảnh và 0 lỗi bắt buộc, Release cần tối đ
 - Prompt chính yêu cầu đọc dòng YOLO và cấu hình, trả `Issue` đúng mã và số dòng, chỉ ghi bản làm việc và log trước/sau.
 - Kiểm bằng 79 unit test, lỗi chèn trên 39 ảnh calib, phép thử gate ngân sách 0 và chạy lặp trên lô raw.
 - Bản nháp autofix tạo box trùng sau khi cắt biên trong ca thử bổ sung. Bản sửa so IoU của box vừa cắt với các box cùng lớp và ghi một lần xóa cho dòng trùng.
+
+**Kiểm bổ sung.** Chạy `python -m pipeline.checks.box_aspect work/run/ds --max-ratio 6 --out submission/evidence/box_aspect.csv` sau `make run`. Check dùng tỉ lệ cạnh dài/cạnh ngắn theo pixel, có hai test riêng và gắn cờ 3 box trên 205 ảnh ở ngưỡng 6. Tỉ lệ lớn có thể là vật bị che hoặc bị cắt ở mép ảnh. Check chỉ dùng để chọn ca xem lại, ngoài cổng QC chính thức.
+
+**CVAT.** Import YOLO 1.1 cho 20 ảnh đầu hàng đợi vào job 21 và áp dụng `Width < 20`. Kết quả quan sát trong giao diện: `img_0020` 3, `img_0030` 3, `img_0031` 0, `img_0053` 1 và `img_0135` 2. Danh sách v3 không có `BOX_TINY` trên năm ảnh này vì dùng cạnh ngắn dưới 12 px, còn CVAT dùng chiều rộng dưới 20 px. Người gán bật `can_review` khi cần người khác xác minh box. Pipeline chuyển ca khó sang hàng đợi qua mã cảnh báo và điểm ưu tiên. [Ảnh bộ lọc trên img_0135](evidence/cvat_width_filter.png).

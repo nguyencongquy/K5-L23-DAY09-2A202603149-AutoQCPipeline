@@ -1,0 +1,4 @@
+check,severity,code,image,line,message,extra
+box_aspect,warn,BOX_ASPECT_EXTREME,img_0042,5,"Box có tỉ lệ hai cạnh cao, cần xem lại","{""ratio"": 9.579, ""max_ratio"": 6.0}"
+box_aspect,warn,BOX_ASPECT_EXTREME,img_0084,7,"Box có tỉ lệ hai cạnh cao, cần xem lại","{""ratio"": 6.848, ""max_ratio"": 6.0}"
+box_aspect,warn,BOX_ASPECT_EXTREME,img_0124,6,"Box có tỉ lệ hai cạnh cao, cần xem lại","{""ratio"": 9.111, ""max_ratio"": 6.0}"
